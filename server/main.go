@@ -7,6 +7,8 @@ import (
 	"server/config"
 	"server/controllers"
 	"server/engine"
+	"server/handler"
+	"server/model"
 	"server/persistence"
 )
 
@@ -24,9 +26,22 @@ func main() {
 	// Graceful exit handler
 	exit := controllers.NewExitController()
 
+	var loginManager handler.LoginManager
+	// If SSO, create SSO manager
+	if config.GetEnvironment().AUTH_TYPE == "SSO" {
+		ssoMan := handler.NewSsoManager(exit.Context())
+		clientId, clientSecret := ssoMan.AcsClient.GetClientCredentials(handler.GetRedirectUrl())
+		model.InitSsoStore(db.Instance).SetSsoClientCredentials(clientId, clientSecret)
+		ssoMan.AddAuthenticator()
+		loginManager = ssoMan.SsoHandler
+		defer ssoMan.AcsClient.DeleteACSClient(clientId) // TODO probably move to engine shutdown to avoid doing it too early
+	} else {
+		loginManager = handler.CredentialsHandler{}
+	}
+
 	engine := engine.NewEngine(exit.Context(), db, deploymentsClient)
 
-	app := api.NewApp(db, engine)
+	app := api.NewApp(db, engine, loginManager)
 
 	// Start listening for shutdown signal
 	exit.Start()

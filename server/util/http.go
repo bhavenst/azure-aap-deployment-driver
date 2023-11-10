@@ -31,7 +31,11 @@ type HttpResponse struct {
 }
 
 func NewHttpRequester() *HttpRequester {
-	return newRequester(&http.Transport{})
+	return newRequester(&http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	})
 }
 
 func NewHttpRequesterWithCertificate(certPEMString, privkeyPEMString string) (*HttpRequester, error) {

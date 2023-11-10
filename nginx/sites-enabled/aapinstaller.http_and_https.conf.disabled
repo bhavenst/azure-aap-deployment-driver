@@ -43,6 +43,9 @@ server {
     # main location for any remaining URI, checks for session cookie
     location / {
 
+        # Redirect for SSO callback
+        if ($arg_session_state != "") {return 302 /api/callback$is_args$args; }
+
         # if madd_session cookie is not set, redirect to login
         if ($cookie_madd_session = "") {
             return 302 /login;
