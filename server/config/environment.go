@@ -78,7 +78,7 @@ func GetEnvironment() envVars {
 	environment.LOG_REL_PATH = "engine.log" // on top of BASE_PATH
 	environment.LOG_LEVEL = "info"
 	environment.AZURE_LOGIN_RETRIES = 10
-	environment.SSO_ENDPOINT = "https://sso.stage.redhat.com/auth/realms/redhat-external" // TODO remove dev
+	environment.SSO_ENDPOINT = "https://sso.stage.redhat.com/auth/realms/redhat-external"
 	environment.INSTALLER_DOMAIN_NAME = "https://127.0.0.1"
 
 	env := envs.EnvConfig{}

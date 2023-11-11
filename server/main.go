@@ -10,6 +10,8 @@ import (
 	"server/handler"
 	"server/model"
 	"server/persistence"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -27,16 +29,42 @@ func main() {
 	exit := controllers.NewExitController()
 
 	var loginManager handler.LoginManager
+	// Fallback in case SSO setup fails
+	loginManager = handler.CredentialsHandler{}
+
+	// TODO move all this outside main!
 	// If SSO, create SSO manager
 	if config.GetEnvironment().AUTH_TYPE == "SSO" {
-		ssoMan := handler.NewSsoManager(exit.Context())
-		clientId, clientSecret := ssoMan.AcsClient.GetClientCredentials(handler.GetRedirectUrl())
-		model.InitSsoStore(db.Instance).SetSsoClientCredentials(clientId, clientSecret)
-		ssoMan.AddAuthenticator()
-		loginManager = ssoMan.SsoHandler
-		defer ssoMan.AcsClient.DeleteACSClient(clientId) // TODO probably move to engine shutdown to avoid doing it too early
-	} else {
-		loginManager = handler.CredentialsHandler{}
+		ssoManager := handler.NewSsoManager(exit.Context())
+		store := model.GetSsoStore()
+		// TODO, maybe spin this off and retry until it works
+		// For now if we can't create client, do normal login
+		var credentials *model.SsoCredentials
+		var err error
+		if store == nil {
+			// Create dynamic client, get credentials
+			credentials, err = getSsoClientCredentials(ssoManager, db)
+			if err != nil {
+				log.Errorf("Unable to create client and get credentials: %v", err)
+			}
+		} else {
+			// Fetch from db
+			credentials, err = model.GetSsoStore().GetSsoClientCredentials()
+			if err != nil {
+				log.Errorf("Unable to load credentials from db: %v", err)
+			}
+		}
+		// Create authenticator, must be done after SSO client and credentials are in db
+		if credentials != nil {
+			err := ssoManager.AddAuthenticator(credentials.ClientId, credentials.ClientSecret)
+			if err != nil {
+				log.Errorf("Unable to create SSO authenticator, fall back to credentials login: %v", err)
+			} else {
+				loginManager = ssoManager.SsoHandler
+				// TODO probably move deletion to engine shutdown.
+				defer ssoManager.AcsClient.DeleteACSClient(credentials.ClientId)
+			}
+		}
 	}
 
 	engine := engine.NewEngine(exit.Context(), db, deploymentsClient)
@@ -57,4 +85,15 @@ func main() {
 	case <-exit.Done():
 	case <-engine.Done():
 	}
+}
+
+func getSsoClientCredentials(ssoManager *handler.SsoManager, db *persistence.Database) (*model.SsoCredentials, error) {
+	credentials, err := ssoManager.AcsClient.GetClientCredentials(handler.GetRedirectUrl())
+	if err != nil {
+		log.Errorf("Unable to create SSO client, fall back to credentials login: %v", err)
+		return nil, err
+	} else {
+		model.InitSsoStore(db.Instance).SetSsoClientCredentials(credentials.ClientId, credentials.ClientSecret)
+	}
+	return credentials, nil
 }

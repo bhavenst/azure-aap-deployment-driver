@@ -16,5 +16,5 @@ func GetRedirectUrl() string {
 	if err != nil {
 		log.Fatalf("Unable to create SSO redirect URL: %v", err)
 	}
-	return baseUrl
+	return baseUrl // TODO fix once they update the allowed redirect URLs
 }

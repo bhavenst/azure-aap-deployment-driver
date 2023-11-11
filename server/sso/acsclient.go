@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"server/config"
+	"server/model"
 	"server/util"
 
 	log "github.com/sirupsen/logrus"
@@ -42,6 +43,8 @@ type ClientResponse struct {
 
 const TOKEN_SCOPE string = "api.iam.clients.aoc"
 const TOKEN_API string = "protocol/openid-connect/token"
+const SSO_ORG_ID string = "123" // TODO Make this one value for test, one for production
+const SSO_CLIENT_NAME string = "deploymentdriver"
 
 type AcsClient struct {
 	Endpoint     string
@@ -61,10 +64,11 @@ func NewAcsClient(ctx context.Context) *AcsClient {
 
 	token, err := client.getToken()
 	if err != nil {
-		log.Fatalf("Unable to get SSO client access token: %v", err)
+		log.Errorf("Unable to get SSO client access token: %v", err)
+		return nil
 	}
 	client.Token = token
-	log.Info("Initialized SSO client.")
+	log.Trace("Initialized SSO client.")
 	return client
 }
 
@@ -90,18 +94,17 @@ func (c *AcsClient) getToken() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to unmarshal token response: %v", err)
 	}
-	log.Infof("Got SSO token: %s", bodyJson.AccessToken)
+	log.Infof("Access token: %s", bodyJson.AccessToken)
 	return bodyJson.AccessToken, nil
 }
 
-func (c *AcsClient) GetClientCredentials(redirectUrl string) (string, string) {
-	log.Infof("Redirect URL: %s", redirectUrl)
-	resp, err := c.createACSClient("deploymentdriver", redirectUrl, "1")
+func (c *AcsClient) GetClientCredentials(redirectUrl string) (*model.SsoCredentials, error) {
+	resp, err := c.createACSClient(SSO_CLIENT_NAME, redirectUrl, SSO_ORG_ID)
 	if err != nil {
-		log.Fatalf("unable to create SSO client: %v", err)
+		log.Errorf("unable to create SSO client: %v", err)
+		return nil, err
 	}
-	log.Infof("Created client: %s", resp.ClientId)
-	return resp.ClientId, resp.Secret
+	return &model.SsoCredentials{ClientId: resp.ClientId, ClientSecret: resp.Secret}, nil
 }
 
 func (c *AcsClient) createACSClient(name string, redirectUrl string, orgId string) (*ClientResponse, error) {
@@ -119,14 +122,15 @@ func (c *AcsClient) createACSClient(name string, redirectUrl string, orgId strin
 	if err != nil {
 		return nil, fmt.Errorf("create ACS client request failed: %v", err)
 	}
+	log.Tracef("SSO client create request response code %d, body: %s", resp.StatusCode, string(resp.Body))
 
+	if resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("create ACS client request failed: %s", string(resp.Body))
+	}
 	bodyJson := ClientResponse{}
 	err = json.Unmarshal(resp.Body, &bodyJson)
 	if err != nil {
 		return nil, fmt.Errorf("unable to unmarshal ACS client creation response to json: %v", err)
-	}
-	if resp.StatusCode != http.StatusCreated {
-		return &bodyJson, fmt.Errorf("create ACS client request failed: %s", bodyJson.ErrorDescription)
 	}
 	return &bodyJson, nil
 }
@@ -151,6 +155,7 @@ func (c *AcsClient) DeleteACSClient(clientID string) (*ClientResponse, error) {
 		}
 		return &bodyJson, fmt.Errorf("request to delete ACS client failed: %s", bodyJson.ErrorDescription)
 	}
+	model.GetSsoStore().RemoveSsoClientCredentials()
 	return nil, nil
 }
 

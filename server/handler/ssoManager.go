@@ -2,8 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"server/config"
-	"server/model"
 	"server/sso"
 
 	log "github.com/sirupsen/logrus"
@@ -24,15 +25,20 @@ func NewSsoManager(ctx context.Context) *SsoManager {
 	}
 }
 
-func (s *SsoManager) AddAuthenticator() error {
-	creds, err := model.GetSsoStore().GetSsoClientCredentials()
+func (s *SsoManager) AddAuthenticator(clientId string, clientSecret string) error {
+
+	auth, err := NewAuthenticator(s.Context, config.GetEnvironment().SSO_ENDPOINT, GetRedirectUrl(), clientId, clientSecret)
 	if err != nil {
-		log.Errorf("unable to load client credentials from db: %v", err)
+		log.Errorf("unable to instantiate SSO authenticator: %v", err)
+		return err
 	}
-	auth, err := NewAuthenticator(s.Context, config.GetEnvironment().SSO_ENDPOINT, GetRedirectUrl(), creds.ClientId, creds.ClientSecret)
-	if err != nil {
-		log.Fatalf("Unable to instantiate SSO authenticator: %v", err)
-	}
-	s.SsoHandler = &SsoHandler{Auth: auth}
+	s.SsoHandler = &SsoHandler{Auth: auth, State: generateRandomState()}
 	return nil
+}
+
+func generateRandomState() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	state := base64.StdEncoding.EncodeToString(b)
+	return state
 }

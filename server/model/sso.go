@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type SsoStore interface {
 	SetSsoClientCredentials(string, string) error
 	GetSsoClientCredentials() (*SsoCredentials, error)
+	RemoveSsoClientCredentials()
 }
 
 var once sync.Once
@@ -35,10 +35,6 @@ func InitSsoStore(db *gorm.DB) SsoStore {
 }
 
 func GetSsoStore() SsoStore {
-	if Store == nil {
-		log.Error("Sso Store not yet initialized.")
-		return nil
-	}
 	return Store
 }
 
@@ -57,4 +53,9 @@ func (s ssoStore) GetSsoClientCredentials() (*SsoCredentials, error) {
 		return nil, fmt.Errorf("unable to load SSO credentials from DB: %v", err)
 	}
 	return creds, nil
+}
+
+func (s ssoStore) RemoveSsoClientCredentials() {
+	// Clear table
+	s.db.Exec("DELETE FROM sso_credentials")
 }
