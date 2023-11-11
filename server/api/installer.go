@@ -23,13 +23,15 @@ type Installer struct {
 	db         *gorm.DB
 	engine     *engine.Engine
 	httpServer *http.Server
+	loginMgr   handler.LoginManager
 }
 
 // func NewApp(database *persistence.Database) *Installer {
-func NewApp(database *persistence.Database, engine *engine.Engine) *Installer {
+func NewApp(database *persistence.Database, engine *engine.Engine, loginManager handler.LoginManager) *Installer {
 	app := &Installer{
-		db:     database.Instance,
-		engine: engine,
+		db:       database.Instance,
+		engine:   engine,
+		loginMgr: loginManager,
 	}
 	app.initialize()
 	return app
@@ -72,7 +74,7 @@ func (a *Installer) configureSessionHelper() {
 
 func (a *Installer) setRouters() {
 	a.Get("/status", a.WrapHandlerWithDB(handler.Status))
-	a.Post("/login", a.WrapHandlerWithDB(handler.GetLoginHandler())) // GetLoginHandler() must be executed to do its initialization
+	a.Post("/login", a.WrapHandlerWithDB(a.loginMgr.GetLoginHandler())) // GetLoginHandler() must be executed to do its initialization
 	a.Post("/logout", handler.EnsureAuthenticated(handler.Logout))
 	a.Get("/step", handler.EnsureAuthenticated(a.WrapHandlerWithDB(handler.GetAllSteps)))
 	a.Get("/step/{id}", handler.EnsureAuthenticated(a.WrapHandlerWithDB(handler.GetStep)))
@@ -82,6 +84,11 @@ func (a *Installer) setRouters() {
 	a.Post("/cancelAllSteps", handler.EnsureAuthenticated(a.WrapHandlerWithDBAndEngine(handler.CancelAllSteps)))
 	a.Post("/deleteContainer", handler.EnsureAuthenticated(a.WrapHandlerWithDB(handler.DeleteContainer)))
 	a.Post("/terminate", handler.EnsureAuthenticated(a.WrapHandlerWithDB(handler.Terminate)))
+	if config.GetEnvironment().AUTH_TYPE == "SSO" {
+		ssoClient := a.loginMgr.(*handler.SsoHandler)
+		a.Get(handler.REDIRECT_PATH, a.WrapHandlerWithDB(ssoClient.SsoRedirect))
+		a.Get("/login", a.WrapHandlerWithDB(a.loginMgr.GetLoginHandler()))
+	}
 }
 
 func (a *Installer) Get(path string, f func(w http.ResponseWriter, r *http.Request)) {
